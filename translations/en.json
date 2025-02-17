@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "device_type": "Device Type",
+          "camera_entity": "Camera Entity",
+          "update_interval": "Update Interval (seconds)",
+          "obico_ml_api_host": "Obico Addon Host address (including port)",
+          "obico_ml_api_token": "Obico Addon API Token",
+          "printer_device": "Printer to Monitor"
+        }
+      },
+      "select_device": {
+        "data": {
+          "camera_entity": "Camera Entity",
+          "update_interval": "Update Interval (seconds)",
+          "obico_ml_api_host": "Obico Addon Host address (including port)",
+          "obico_ml_api_token": "Obico Addon API Token",
+          "printer_device": "Printer to Monitor"
+        }
+      }
+    }
+  },
+  "services": {
+    "predict": {
+      "name": "Check for Printing Errors",
+      "description": "Check Obico to determine whether the given image has printing errors such as spaghetti",
+      "fields": {
+        "obico_host": {
+          "name": "Obico ML API Host",
+          "description": "Obico ML API host"
+        },
+        "obico_auth_token": {
+          "name": "Obico ML API Auth Token",
+          "description": "Obico ML API authentication token"
+        },
+        "image_url": {
+          "name": "Image URL",
+          "description": "Image URL"
+        }
+      }
+    }
+  },
+  "entities": {
+    "switch.spaghetti_detection_active": {
+      "name": "Spaghetti Detection Active",
+      "description": "Switch to activate or deactivate spaghetti detection"
+    },
+    "sensor.failure_detection_result": {
+      "name": "Failure Detection Result",
+      "description": "Sensor to show the failure detection result (None, Warning, Failure)"
+    }
+  }
+}

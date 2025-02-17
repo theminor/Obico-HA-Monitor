@@ -1,0 +1,19 @@
+{
+  "domain": "spaghetti_detection",
+  "name": "Spaghetti Detection",
+  "codeowners": [
+    "@theminor"
+  ],
+  "config_flow": true,
+  "dependencies": ["camera"],
+  "documentation": "https://github.com/theminor/spaghetti-detection",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/theminor/spaghetti-detection/issues",
+  "version": "1.0.0",
+  "requirements": [
+    "Pillow>=8.0.0",
+    "numpy>=1.23.0"
+  ],
+  "integration_type": "hub",
+  "platforms": ["camera", "number", "switch", "sensor"]
+}
