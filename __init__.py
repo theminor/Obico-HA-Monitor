@@ -13,12 +13,11 @@ PLATFORMS = [Platform.NUMBER, Platform.CAMERA, Platform.SWITCH, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the Spaghetti Detection integration."""
-    camera_entity_id = entry.data["camera_entity"]
-    update_interval = entry.data.get("update_interval", 60)
-    obico_ml_api_host = entry.data.get("obico_ml_api_host", "http://127.0.0.1:3333")
-    obico_ml_api_token = entry.data.get("obico_ml_api_token", "obico_api_secret")
-    printer_device = entry.data["printer_device"]
-    device_name = entry.data["device_name"]
+    camera_entity_id = entry.data["camera_entity"]  # Required: Get the camera entity ID from the config entry data
+    update_interval = entry.data.get("update_interval", 60) # Optional: Time in seconds between updates
+    obico_ml_api_host = entry.data.get("obico_ml_api_host", "http://127.0.0.1:3333") # Optional: Obico ML API host
+    obico_ml_api_token = entry.data.get("obico_ml_api_token", "obico_api_secret") # Optional: Obico ML API token
+    device_name = entry.data["device_name"] # Required: The name of the printer device to monitor and interact with
 
     # Initialize the domain data dictionary
     if DOMAIN not in hass.data:
@@ -46,55 +45,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         camera = hass.data[DOMAIN]["camera"]
         try:
             image = await camera.async_camera_image()
-        except Exception as e:
-            LOGGER.error("Failed to get image from camera: %s", e)
+        except Exception as err:
+            LOGGER.error("Failed to get image from camera: %s", err)
             return
 
         predictions = []
         last_prediction = PrinterPrediction()  # TO DO - need to implement - see obico-server/backend/app/models/other_models.py
-        ### *** STOPPED REVIEW HERE *** ###
 
-        jpg_filenames = sorted(os.listdir(jpgs_dir))
-        for jpg_path in jpg_filenames:
-            jpg_abs_path = os.path.join(jpgs_dir, jpg_path)
-            with open(jpg_abs_path, 'rb') as pic:
-                pic_path = f'{_print.user.id}/{_print.id}/{jpg_path}'
-                internal_url, _ = save_file_obj(f'uploaded/{pic_path}', pic, settings.PICS_CONTAINER, _print.user.syndicate.name, long_term_storage=False)
-                req = requests.get(settings.ML_API_HOST + '/p/', params={'img': internal_url}, headers=ml_api_auth_headers(), verify=False)
-                req.raise_for_status()
-                detections = req.json()['detections']
-                update_prediction_with_detections(last_prediction, detections, _print.printer)
-                predictions.append(last_prediction)
-
-                if is_failing(last_prediction, 1, escalating_factor=1):
-                    _print.alerted_at = timezone.now()
-
-                last_prediction = copy.deepcopy(last_prediction)
-                detections_to_visualize = [d for d in detections if d[1] > VISUALIZATION_THRESH]
-                overlay_detections(Image.open(jpg_abs_path), detections_to_visualize).save(os.path.join(tagged_jpgs_dir, jpg_path), "JPEG")
-
+        # Make the API call to the Obico ML server
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(f"{obico_ml_api_host}/check/", params={'entity_id': camera_entity_id}, headers={"Authorization": f"Bearer {obico_ml_api_token}"}) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                    detections = result['detections']
+            except aiohttp.ClientError as e:
+                LOGGER.error("Failed to make API call to Obico ML server: %s", e)
+                return
+            except Exception as e:
+                LOGGER.error("Unexpected error: %s", e)
+                return
+        update_prediction_with_detections(last_prediction, detections)
+        predictions.append(last_prediction)
+        if is_failing(last_prediction, 1, escalating_factor=1):
+            # *** TO DO *** Update the Printer Prediction
+        last_prediction = copy.deepcopy(last_prediction)
+        # *** TO DO *** Update the Camera Image
         predictions_json = serializers.serialize("json", predictions)
-        _, json_url = save_file_obj(f'private/{_print.id}_p.json', io.BytesIO(str.encode(predictions_json)), settings.TIMELAPSE_CONTAINER, _print.user.syndicate.name)
 
-        mp4_filename = f'{_print.id}_tagged.mp4'
-        output_mp4 = os.path.join(tmp_dir, mp4_filename)
-        subprocess.run(
-            f'ffmpeg -y -r 30 -pattern_type glob -i {tagged_jpgs_dir}/*.jpg -c:v libx264 -pix_fmt yuv420p -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 {output_mp4}'.split(), check=True)
-        with open(output_mp4, 'rb') as mp4_file:
-            _, mp4_file_url = save_file_obj(f'private/{mp4_filename}', mp4_file, settings.TIMELAPSE_CONTAINER, _print.user.syndicate.name)
 
-        with open(os.path.join(jpgs_dir, jpg_filenames[-1]), 'rb') as poster_file:
-            _, poster_file_url = save_file_obj(f'private/{_print.id}_poster.jpg', poster_file, settings.TIMELAPSE_CONTAINER, _print.user.syndicate.name)
 
-        _print.tagged_video_url = mp4_file_url
-        _print.prediction_json_url = json_url
-        _print.poster_url = poster_file_url
-        _print.save(keep_deleted=True)
 
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        send_timelapse_detection_done_email(_print)
-        delete_dir(f'uploaded/{_print.user.id}/{_print.id}/', settings.PICS_CONTAINER, long_term_storage=False)
-    ################
 
 
 
