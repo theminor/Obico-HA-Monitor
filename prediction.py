@@ -42,3 +42,34 @@ def next_rolling_mean(p, current_rolling_mean, count, win_size):
 
 def sum_p_in_detections(detections):
     return sum([ d[1] for d in detections ])
+
+
+class PrinterPrediction:
+    def __init__(self):
+        self.printer = None             # printer: A one-to-one relationship with the Printer model.
+        self.current_frame_num = 0      # current_frame_num: The current frame number being processed.
+        self.lifetime_frame_num = 0     # lifetime_frame_num: The total number of frames processed over the printer's lifetime.
+        self.current_p = 0              # current_p: The current prediction score.
+        self.ewm_mean = 0               # ewm_mean: The exponentially weighted mean of prediction scores.
+        self.rolling_mean_short = 0     # rolling_mean_short: The short-term rolling mean of prediction scores.
+        self.rolling_mean_long = 0      # rolling_mean_long: The long-term rolling mean of prediction scores
+        self.created_at = None          # created_at: Timestamp when the prediction was created.
+        self.updated_at = None          # updated_at: Timestamp when the prediction was last updated.
+        
+    def reset_for_new_print(self):
+        self.current_frame_num = 0
+        self.current_p = 0.0
+        self.ewm_mean = 0.0
+        self.rolling_mean_short = 0.0
+        self.save()
+
+    def __str__(self):
+        return '| printer_id: {} | current_p: {:.4f} | ewm_mean: {:.4f} | rolling_mean_short: {:.4f} | rolling_mean_long: {:.4f} | current_frame_num: {} | lifetime_frame_num: {} |'.format(
+            self.printer_id,
+            self.current_p,
+            self.ewm_mean,
+            self.rolling_mean_short,
+            self.rolling_mean_long,
+            self.current_frame_num,
+            self.lifetime_frame_num,
+        )

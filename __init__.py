@@ -6,6 +6,7 @@ from datetime import timedelta
 import logging
 from .const import DOMAIN, MAX_FRAME_NUM
 from .prediction import update_prediction_with_detections, is_failing, VISUALIZATION_THRESH
+from .prediction import PrinterPrediction
 
 LOGGER = logging.getLogger(__package__)
 
@@ -37,16 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ################ from upload_print() from obico-server/backend/app/views/web_views.py
     ################ and preprocess_timelapse() from obico-server/backend/app/tasks.py
     ################ and detect_timelapse() from obico-server/backend/app/tasks.py
-    async def processImage(request):
+    async def processImage():
         if not hass.data[DOMAIN]["active"]:
-            return
-
-        # Get the image from the camera entity
-        camera = hass.data[DOMAIN]["camera"]
-        try:
-            image = await camera.async_camera_image()
-        except Exception as err:
-            LOGGER.error("Failed to get image from camera: %s", err)
             return
 
         predictions = []
@@ -70,9 +63,70 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if is_failing(last_prediction, 1, escalating_factor=1):
             # *** TO DO *** Update the Printer Prediction
         last_prediction = copy.deepcopy(last_prediction)
-        # *** TO DO *** Update the Camera Image
-        predictions_json = serializers.serialize("json", predictions)
 
+        # Get the image from the camera entity
+        camera = hass.data[DOMAIN]["camera"]
+        try:
+            image = await camera.async_camera_image()
+        except Exception as err:
+            LOGGER.error("Failed to get image from camera: %s", err)
+            return
+        # *** TO DO *** Update the Camera Image
+
+
+        # *** TO DO *** Analyze below code
+        def detect_if_needed(self, printer, pic, pic_id, raw_pic_url):
+            '''
+            Return:
+            True: Detection was performed. img_url was updated to the tagged image
+            False: No detection was performed. img_url was not updated
+            '''
+
+            if not printer.should_watch() or not printer.actively_printing():
+                return False
+
+            prediction, _ = PrinterPrediction.objects.get_or_create(printer=printer)
+
+            if time.time() - prediction.updated_at.timestamp() < settings.MIN_DETECTION_INTERVAL:
+                return False
+
+            cache.print_num_predictions_incr(printer.current_print.id)
+
+            req = requests.get(settings.ML_API_HOST + '/p/', params={'img': raw_pic_url}, headers=ml_api_auth_headers(), verify=False)
+            req.raise_for_status()
+            detections = req.json()['detections']
+            if settings.DEBUG:
+                LOGGER.info(f'Detections: {detections}')
+
+            update_prediction_with_detections(prediction, detections, printer)
+            prediction.save()
+
+            if prediction.current_p > settings.THRESHOLD_LOW * 0.2:  # Select predictions high enough for focused feedback
+                cache.print_high_prediction_add(printer.current_print.id, prediction.current_p, pic_id)
+
+            pic.file.seek(0)  # Reset file object pointer so that we can load it again
+            tagged_img = io.BytesIO()
+            detections_to_visualize = [d for d in detections if d[1] > VISUALIZATION_THRESH]
+            overlay_detections(Image.open(pic), detections_to_visualize).save(tagged_img, "JPEG")
+            tagged_img.seek(0)
+
+            pic_path = f'tagged/{printer.id}/{printer.current_print.id}/{pic_id}.jpg'
+            _, external_url = save_file_obj(pic_path, tagged_img, settings.PICS_CONTAINER, printer.user.syndicate.name, long_term_storage=False)
+            cache.printer_pic_set(printer.id, {'img_url': external_url}, ex=IMG_URL_TTL_SECONDS)
+
+            prediction_json = serializers.serialize("json", [prediction, ])
+            p_out = io.BytesIO()
+            p_out.write(prediction_json.encode('UTF-8'))
+            p_out.seek(0)
+            save_file_obj(f'p/{printer.id}/{printer.current_print.id}/{pic_id}.json', p_out, settings.PICS_CONTAINER, printer.user.syndicate.name, long_term_storage=False)
+
+            if is_failing(prediction, printer.detective_sensitivity, escalating_factor=settings.ESCALATING_FACTOR):
+                # The prediction is high enough to match the "escalated" level and hence print needs to be paused
+                pause_if_needed(printer, external_url)
+            elif is_failing(prediction, printer.detective_sensitivity, escalating_factor=1):
+                alert_if_needed(printer, external_url)
+
+            return True
 
 
 
